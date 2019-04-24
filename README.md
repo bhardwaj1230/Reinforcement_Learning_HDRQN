@@ -1,2 +1,2 @@
-# CS229-DeepRL
+# Duplicate
 Deep RL for Montezuma's Revenge
