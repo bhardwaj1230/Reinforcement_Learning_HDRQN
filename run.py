@@ -8,6 +8,7 @@ from object_detection import object_detection
 import cv2
 import copy 
 plt.style.use('ggplot')
+from tqdm import tqdm
 
 class Coach:
     def __init__(self):
@@ -18,7 +19,7 @@ class Coach:
         self.goal_mask = []
         self.meta = meta_controller()
         self.history = deque([], maxlen = 5)
-        self.num_episodes = 5000
+        self.num_episodes = 100 #5000
         self.anneal_factor = (1.0-0.1)/self.num_episodes
         self.goal_idx = {'ladder1':0,'ladder2':1,'ladder3':2,'key':3 ,'door2':4}
         self.ActorExperience = namedtuple("ActorExperience", ["state", "goal", "action", "reward", "next_state"])
@@ -42,11 +43,7 @@ class Coach:
 
 
 
-    def learn_subgoal(self):
-        #collect_intrinsic_reward= []
-        #collect_ale_lives = []
-        #collect_agent_death = []
-        #collect_extrinsic_reward_for_goal = []
+    def learn_subgoal(self,num_episode):
 
         goal_mask = self.object_detection.to_grayscale(self.object_detection.downsample(self.goal_mask))
         action = self.agent.select_move(list(self.history)[1:5], goal_mask, self.goal_idx[self.goal])
@@ -54,11 +51,11 @@ class Coach:
 
         next_frame , external_reward, done, info = self.env.step(action)
         print("Done", done, "Info : ", info['ale.lives'], "ale_lives", self.ale_lives)
-        self.collect_ale_lives.append((done, info['ale.lives'], self.ale_lives))
+        self.collect_ale_lives.append((num_episode, done, info['ale.lives'], self.ale_lives))
         if info['ale.lives'] < self.ale_lives:
             self.ale_lives = info['ale.lives']
             print("Agent Died!!!! . Lives left : ", self.ale_lives)
-            self.collect_agent_death.append(('Lives left',self.ale_lives))
+            self.collect_agent_death.append((num_episode, 'Lives left', self.ale_lives))
             self.meta.update_state('start')
             self.stats['goal_selected'][self.goal_idx[self.goal]] += 1
             self.goal, self.goal_mask = self.meta.getSubgoal() 
@@ -70,12 +67,12 @@ class Coach:
         self.history.append(next_frame_preprocessed)
         if external_reward > 0:
             print("extrinsic_reward for goal", self.goal, " reward:", external_reward)
-            self.collect_extrinsic_reward_for_goal.append((self.goal, external_reward))
+            self.collect_extrinsic_reward_for_goal.append((num_episode, self.goal, external_reward))
 
         # print self.goal_mask.shape , next_frame.shape
         intrinsic_reward = self.agent.criticize(self.goal_mask, next_frame)
         print("Intrinsic Reward", intrinsic_reward)
-        self.collect_intrinsic_reward.append(intrinsic_reward)
+        self.collect_intrinsic_reward.append((num_episode, intrinsic_reward))
         goal_reached = (intrinsic_reward > 0)
         if goal_reached:
             print("Goal reached!! ", self.goal)
@@ -97,7 +94,7 @@ class Coach:
 
         print("Annealing factor: " + str(self.anneal_factor))
         self.collect_annealing_factor_per_episode.append(self.anneal_factor)
-        for num_episode in range(self.num_episodes):
+        for num_episode in tqdm(range(self.num_episodes)):
                 self.history.clear()
                 self.ale_lives = 6
                 total_external_reward = 0
@@ -116,7 +113,7 @@ class Coach:
                     goal_reached = False
                     while not done and not goal_reached:
                         self.time_steps += 1
-                        external_reward, goal_reached, done = self.learn_subgoal()
+                        external_reward, goal_reached, done = self.learn_subgoal(num_episode)
                         total_external_reward += external_reward
                         episode_length += 1
                         if goal_reached:
